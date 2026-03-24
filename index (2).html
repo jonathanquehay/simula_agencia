@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulación - Flujo de Agencia de Marketing</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #0f172a; }
+        #simCanvas { display: block; width: 100vw; }
+        /* Scrollbar personalizado para el modal si el texto es muy largo */
+        .custom-scrollbar::-webkit-scrollbar { width: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #1e293b; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #64748b; }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col font-sans text-slate-200">
+
+    <!-- Panel de Control Superior -->
+    <div id="ui-panel" class="bg-slate-800 p-4 border-b border-slate-700 flex flex-wrap gap-4 justify-center items-center z-10 shadow-lg">
+        <h1 class="text-white text-xl font-bold mr-4 border-r border-slate-600 pr-4">Pipeline de Producción</h1>
+        <span class="text-sm text-slate-400 mr-2">Casos de Estudio:</span>
+        <button onclick="startSim('landing')" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded text-white font-semibold shadow transition">SaaS Landing</button>
+        <button onclick="startSim('social')" class="px-4 py-2 bg-purple-600 hover:bg-purple-500 rounded text-white font-semibold shadow transition">Campaña Ropa (Redes)</button>
+        <button onclick="startSim('app')" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded text-white font-semibold shadow transition">App Delivery</button>
+        <button onclick="startSim('local')" class="px-4 py-2 bg-orange-600 hover:bg-orange-500 rounded text-white font-semibold shadow transition">Cafetería Local</button>
+        
+        <div class="border-l border-slate-600 pl-4 ml-2 flex items-center gap-3">
+            <button onclick="toggleBuilder()" id="btn-builder" class="px-4 py-2 bg-slate-600 hover:bg-slate-500 rounded text-white font-bold shadow transition border border-slate-400">🛠️ Modo Constructor</button>
+            <select id="sim-speed" onchange="changeSpeed()" class="bg-slate-700 hover:bg-slate-600 text-white text-sm font-bold rounded px-2 py-2 border border-slate-500 outline-none cursor-pointer transition hidden md:block">
+                <option value="1">⏩ 1x</option>
+                <option value="2">⏩ 2x</option>
+                <option value="4">⏩ 4x</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- Panel del Modo Constructor -->
+    <div id="builder-panel" class="hidden absolute bottom-5 left-1/2 transform -translate-x-1/2 bg-slate-800 p-4 border border-slate-600 rounded-xl shadow-2xl z-20 flex items-center gap-2 md:gap-4 w-11/12 max-w-2xl overflow-x-auto custom-scrollbar">
+        <span class="text-cyan-400 font-bold hidden md:inline">Tu Ciclo:</span>
+        <div id="builder-route" class="flex items-center gap-2 text-sm font-mono bg-slate-900 p-2 rounded whitespace-nowrap overflow-hidden text-ellipsis flex-1">Vacío</div>
+        <button onclick="playCustomRoute()" class="px-3 py-2 md:px-4 bg-green-600 hover:bg-green-500 rounded text-white font-bold shadow transition flex-shrink-0">▶ Configurar y Simular</button>
+        <button onclick="undoBuilder()" class="px-3 py-2 bg-yellow-600 hover:bg-yellow-500 rounded text-white text-sm font-bold shadow transition flex-shrink-0">↩ Deshacer</button>
+        <button onclick="clearBuilder()" class="px-3 py-2 bg-red-600 hover:bg-red-500 rounded text-white text-sm font-bold shadow transition flex-shrink-0">Limpiar</button>
+    </div>
+
+    <!-- Contenedor del Canvas y Modal -->
+    <div class="flex-1 relative w-full h-full">
+        <canvas id="simCanvas"></canvas>
+
+        <!-- Modal de Configuración del Estudiante (NUEVO) -->
+        <div id="config-modal" class="hidden absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-slate-900 p-6 rounded-xl shadow-2xl w-11/12 max-w-4xl border border-slate-600 z-[60] max-h-[90vh] overflow-y-auto custom-scrollbar">
+            <h2 class="text-3xl font-bold text-cyan-400 mb-4 border-b border-slate-700 pb-2">⚙️ Configura tu Proyecto</h2>
+            <p class="text-slate-300 mb-4">Llena los datos de tu simulación. Lo que dejes en blanco aparecerá como pendiente en tu reporte final.</p>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div>
+                    <label class="block text-slate-400 text-sm font-bold mb-1">Nombre del Proyecto</label>
+                    <input type="text" id="cfg-proj-name" placeholder="Ej: App de Delivery 'Rápido'" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white focus:outline-none focus:border-cyan-500">
+                </div>
+                <div>
+                    <label class="block text-slate-400 text-sm font-bold mb-1">Nombre del Estudiante / Agencia</label>
+                    <input type="text" id="cfg-student-name" placeholder="Tu nombre" class="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white focus:outline-none focus:border-cyan-500">
+                </div>
+            </div>
+
+            <div id="cfg-nodes-container" class="space-y-6">
+                <!-- Se llenará dinámicamente con JS -->
+            </div>
+
+            <div class="flex gap-4 mt-6 pt-4 border-t border-slate-700">
+                <button onclick="document.getElementById('config-modal').classList.add('hidden')" class="px-6 py-3 bg-slate-600 hover:bg-slate-500 text-white font-bold rounded-lg transition shadow">Cancelar</button>
+                <button onclick="startCustomSim()" class="flex-1 bg-green-600 hover:bg-green-500 text-white font-bold py-3 px-4 rounded-lg transition shadow-lg text-lg text-center">▶ Guardar e Iniciar Simulación</button>
+            </div>
+        </div>
+
+        <!-- Modal de Fin de Simulación (NUEVO) -->
+        <div id="end-modal" class="hidden absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-slate-900 p-8 rounded-xl shadow-2xl w-11/12 max-w-md border border-slate-600 z-[60] text-center">
+            <div class="text-6xl mb-4">🏆</div>
+            <h2 class="text-3xl font-bold text-green-400 mb-2">¡Flujo Completado!</h2>
+            <p class="text-slate-300 mb-4">Has finalizado la simulación de tu proyecto. Descarga tu reporte para ver el análisis de tu flujo de trabajo.</p>
+            
+            <!-- Contenedor del Scoreboard -->
+            <div id="end-modal-score" class="mb-6 p-4 bg-slate-800 rounded-lg border border-slate-700 text-left">
+                <!-- Se llena con JS -->
+            </div>
+
+            <button onclick="downloadReport()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 px-4 rounded-lg transition text-xl shadow-lg flex justify-center items-center gap-2 mb-3">
+                📥 Descargar Reporte Final
+            </button>
+            <button onclick="document.getElementById('end-modal').classList.add('hidden')" class="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-4 rounded-lg transition">Cerrar</button>
+        </div>
+
+        <!-- Modal de Información (Ahora más grande y detallado) -->
+        <div id="modal" class="hidden absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-slate-900 p-6 rounded-xl shadow-2xl w-11/12 max-w-2xl border border-slate-600 z-50 max-h-[90vh] overflow-y-auto custom-scrollbar">
+            
+            <div class="flex justify-between items-start mb-4">
+                <h2 id="m-title" class="text-3xl font-bold text-cyan-400">Área</h2>
+                <span id="m-sla" class="bg-yellow-500/20 text-yellow-400 px-3 py-1 rounded border border-yellow-500/50 font-bold">SLA</span>
+            </div>
+
+            <!-- Contexto del Caso de Estudio -->
+            <div id="m-case-container" class="hidden mb-6 bg-blue-900/30 border border-blue-500/50 p-5 rounded-lg">
+                <span id="m-case-title" class="text-blue-300 font-bold text-sm uppercase tracking-wider block mb-2 border-b border-blue-500/30 pb-1">Caso de Estudio</span>
+                <p id="m-case-desc" class="text-blue-50 text-lg leading-relaxed font-semibold mb-4">Descripción de la tarea.</p>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                    <!-- Qué pide la agencia -->
+                    <div class="bg-slate-800/80 p-4 rounded border border-slate-600">
+                        <h3 class="text-orange-400 font-bold flex items-center gap-2 mb-2">
+                            <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
+                            Lo que pedimos al cliente:
+                        </h3>
+                        <p id="m-case-asks" class="text-slate-300 text-sm leading-relaxed">Inputs requeridos.</p>
+                    </div>
+                    <!-- Qué entrega la agencia -->
+                    <div class="bg-slate-800/80 p-4 rounded border border-slate-600">
+                        <h3 class="text-green-400 font-bold flex items-center gap-2 mb-2">
+                            <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                            Lo que entregamos:
+                        </h3>
+                        <p id="m-case-delivers" class="text-slate-300 text-sm leading-relaxed">Outputs generados.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div id="m-general-desc-container">
+                <h3 class="text-slate-400 font-bold text-sm uppercase tracking-wider mb-1">Descripción General del Área</h3>
+                <p id="m-desc" class="mb-5 text-slate-300 text-base leading-relaxed">Descripción general</p>
+            </div>
+
+            <button id="btn-modal-action" onclick="handleModalAction()" class="mt-4 w-full bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-4 px-4 rounded-lg transition text-xl shadow-lg flex justify-center items-center gap-2">
+                Cerrar
+            </button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+        let cw, ch;
+        let isMobile = false;
+        let simSpeed = 1;
+
+        function resize() {
+            cw = canvas.width = window.innerWidth;
+            ch = canvas.height = window.innerHeight - document.getElementById('ui-panel').offsetHeight;
+            isMobile = window.innerWidth < 768;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        window.changeSpeed = function() {
+            simSpeed = parseFloat(document.getElementById('sim-speed').value);
+        };
+
+        // -------------------------------------------------------------
+        // GLOSARIO DE TÉRMINOS TÉCNICOS (TOOLTIPS AUTOMÁTICOS)
+        // -------------------------------------------------------------
+        const glossary = {
+            "Briefing": "Documento inicial donde se resume el requerimiento, alcance y objetivos del proyecto entregado por el cliente.",
+            "Brandbook": "Manual de identidad corporativa. Define las reglas de uso de la marca (logos, colores, tipografías).",
+            "Benchmarking": "Proceso de analizar a fondo las estrategias y productos de la competencia directa e indirecta.",
+            "KPIs": "Indicadores Clave de Rendimiento. Métricas numéricas usadas para evaluar si el proyecto está teniendo éxito.",
+            "CPL": "Costo por Lead. Métrica que indica cuánto dinero nos costó adquirir un solo prospecto interesado.",
+            "LTV": "Life Time Value. La ganancia total estimada que generará un cliente durante todo el tiempo que trabaje con la marca.",
+            "Lead magnet": "Contenido gratuito de mucho valor (un ebook, una plantilla) que se regala a cambio de los datos de contacto del usuario.",
+            "Wireframe": "Boceto estructural de una web o app. Muestra en blanco y negro dónde irá cada botón e imagen antes del diseño final.",
+            "Media Plan": "Planificación detallada en Excel de cuánto presupuesto publicitario se gastará día a día en cada plataforma.",
+            "CTAs": "Call To Action (Llamado a la acción). Son los botones persuasivos que invitan al usuario a hacer clic ('Comprar Ahora', 'Regístrate').",
+            "UI/UX": "Interfaz de Usuario (la estética visual) y Experiencia de Usuario (qué tan fácil e intuitivo es navegar).",
+            "Figma": "El software colaborativo estándar de la industria mundial para diseñar páginas web y prototipos móviles.",
+            "HTML/React": "Lenguajes y librerías de programación frontend utilizados para construir páginas web dinámicas y modernas.",
+            "CRM": "Customer Relationship Management. Software que usa la empresa para organizar los datos de sus clientes y ventas (ej. HubSpot, Salesforce).",
+            "API": "Código o túnel que permite que dos sistemas de software diferentes se comuniquen y compartan datos en tiempo real.",
+            "Staging": "Entorno o servidor de 'ensayo' privado. Aquí el cliente puede probar la página web antes de que el público la vea.",
+            "Pruebas A/B": "Metodología científica donde lanzamos dos versiones de una misma página/anuncio para ver cuál logra más conversiones.",
+            "Kick-off": "Reunión oficial de inauguración donde cliente y agencia alinean expectativas antes de iniciar el trabajo.",
+            "Moodboard": "Tablero de inspiración visual (collage) que sirve para mostrarle al cliente qué 'vibra' estética tendrá el proyecto.",
+            "Reels": "Formato de video vertical muy corto y dinámico en Instagram y Facebook, vital para alcanzar público nuevo orgánicamente.",
+            "Grid": "La 'parrilla' o mosaico cuadrado donde se ven previsualizadas todas las publicaciones en el perfil de Instagram.",
+            "Remarketing": "Táctica publicitaria que consiste en mostrarle anuncios repetitivos únicamente a personas que ya visitaron nuestra web.",
+            "Meta Ads": "El ecosistema de anuncios pagados de la empresa Meta (que incluye anunciarse en Facebook, Instagram y WhatsApp).",
+            "Business Manager": "La plataforma administrativa avanzada de Meta para gestionar de forma segura los permisos y pagos publicitarios.",
+            "píxeles": "Un fragmento diminuto de código oculto en una página web que rastrea a los visitantes para afinar los anuncios.",
+            "píxel": "Código de rastreo invisible que avisa a Facebook/Google cuando un usuario hizo una compra en la web.",
+            "Scope of Work": "Alcance de Trabajo. Anexo legal que delimita exactamente qué incluye el proyecto para evitar tareas extra gratuitas.",
+            "User Journey": "El 'Viaje del Usuario'. Mapa que ilustra paso a paso la experiencia de una persona desde que descubre la marca hasta que compra.",
+            "User Flow": "Diagrama técnico que dibuja la ruta de clics y pantallas por la que pasará el usuario dentro del software.",
+            "Arquitectura de la información": "Disciplina encargada de organizar y clasificar los menús y la información de una web para que sea lógica de navegar.",
+            "stack tecnológico": "La combinación específica de lenguajes, frameworks y bases de datos que deciden usar los programadores.",
+            "Frontend": "La 'fachada' del software. Toda la parte visual (botones, animaciones, colores) con la que interactúa el usuario.",
+            "Backend": "El 'motor' invisible del software. Servidores, bases de datos y la lógica compleja de cálculo.",
+            "Node.js": "Entorno de programación de backend ultrarrápido muy utilizado por startups y aplicaciones modernas.",
+            "Firebase": "Base de datos en tiempo real perteneciente a Google, frecuentemente utilizada para aplicaciones móviles.",
+            "React Native": "Tecnología creada por Meta que permite programar una app y exportarla simultáneamente para iPhone y Android.",
+            "APK": "El archivo instalador original para aplicaciones de dispositivos Android. (Como el .exe en Windows).",
+            "TestFlight": "Aplicación oficial de Apple que usamos para enviar a los clientes versiones 'beta' (de prueba) de su app en su iPhone.",
+            "Teaser": "Campaña publicitaria de intriga que revela casi nada para crear curiosidad masiva justo antes del lanzamiento oficial.",
+            "Target": "El público objetivo o cliente ideal hacia el que va dirigido absolutamente todo el esfuerzo de marketing.",
+            "Guerrilla": "Estrategia publicitaria creativa, generalmente en la calle, que busca el máximo impacto y viralidad con un presupuesto bajo.",
+            "Google My Business": "La ficha gratuita de empresa en Google que permite aparecer geolocalizado en Google Maps con reseñas y horarios.",
+            "Buyer Persona": "Una representación ficticia súper detallada de cómo es nuestro cliente ideal, basada en datos reales de comportamiento.",
+            "leads": "Usuarios que ya entregaron voluntariamente sus datos (email, teléfono) a la empresa y tienen potencial de comprar.",
+            "CPA": "Costo por Adquisición. Cuánto nos cuesta en publicidad convertir a un desconocido en un cliente que ya pagó.",
+            "ROI": "Retorno de Inversión. Métrica financiera que indica el porcentaje de ganancia neta recuperada frente a lo que se gastó.",
+            "SaaS": "Software As A Service (Software como Servicio). Empresas como Netflix, Slack o Zoom que cobran una suscripción mensual.",
+            "B2B": "Business to Business. Se refiere a empresas que no le venden al público general, sino que sus clientes son otras empresas.",
+            "Landing Page": "Página web de aterrizaje de un solo objetivo, diseñada sin distracciones ni menús, enfocada en lograr conversiones."
+        };
+
+        // Función que inyecta automáticamente los tooltips HTML en los textos que coincidan con el glosario
+        function applyGlossary(text) {
+            if (!text) return "";
+            
+            // Ordenar por longitud descendente para evitar que 'Lead' reemplace la mitad de 'Lead magnet'
+            const terms = Object.keys(glossary).sort((a, b) => b.length - a.length);
+            // Escapar caracteres para regex
+            const escapedTerms = terms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+            
+            // Regex que busca la palabra completa. Considera inicio, fin y signos de puntuación de español/inglés.
+            const regex = new RegExp(`(^|[^a-zA-Z0-9_áéíóúÁÉÍÓÚñÑ])(${escapedTerms.join('|')})(?=[^a-zA-Z0-9_áéíóúÁÉÍÓÚñÑ]|$)`, 'gi');
+            
+            return text.replace(regex, (match, prefix, term) => {
+                // Encontrar la llave exacta en el diccionario (insensible a mayúsculas/minúsculas)
+                const termKey = terms.find(t => t.toLowerCase() === term.toLowerCase());
+                if (!termKey) return match;
+                
+                return `${prefix}<span class="relative group underline decoration-dashed decoration-cyan-400 cursor-help font-bold text-cyan-300 transition-colors hover:text-cyan-100 whitespace-nowrap">
+                    ${term}
+                    <span class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-64 p-3 bg-slate-800 text-slate-100 text-sm rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-[100] border border-cyan-700 shadow-[0_10px_30px_rgba(0,0,0,0.8)] font-normal leading-snug text-center whitespace-normal block">
+                        <strong class="text-cyan-400 block mb-1 uppercase tracking-wider text-xs">${termKey}</strong>
+                        ${glossary[termKey]}
+                    </span>
+                </span>`;
+            });
+        }
+        // -------------------------------------------------------------
+
+        // Nodos base con información genérica por si se usa el Modo Constructor
+        const nodes = [
+            { id: 1, name: "Cuentas", x: 0.1, y: 0.3, time: 2000, desc: "Recepción del requerimiento, briefing con el cliente y definición de objetivos iniciales.", sla: "1-2 días", gen_asks: "Presupuesto, objetivos comerciales, Brandbook de la empresa.", gen_delivers: "Documento de Briefing formal, minutas de reunión, cronograma base." },
+            { id: 2, name: "KPI / Inv.", x: 0.25, y: 0.3, time: 2000, desc: "Análisis de mercado, competencia y definición de KPIs.", sla: "2-3 días", gen_asks: "Histórico de ventas, acceso a Google Analytics o Meta Business.", gen_delivers: "Reporte de Benchmarking, proyección de métricas (CPA, ROI esperado)." },
+            { id: 3, name: "Ideación", x: 0.4, y: 0.3, time: 2500, desc: "Lluvia de ideas y conceptualización creativa de la campaña o producto.", sla: "2-4 días", gen_asks: "Feedback sobre referencias visuales (Moodboard) y aprobación de dirección.", gen_delivers: "Propuesta de Concepto Creativo (Presentación PDF)." },
+            { id: 4, name: "Estrategia", x: 0.55, y: 0.3, time: 2000, desc: "Planificación de canales, presupuestos y cronogramas de ejecución.", sla: "2 días", gen_asks: "Aprobación final de inversión en medios (Ad Spend).", gen_delivers: "Media Plan detallado, diagrama de embudo de conversión." },
+            { id: 5, name: "Copywriting", x: 0.7, y: 0.3, time: 2500, desc: "Redacción de textos persuasivos, guiones y contenido escrito.", sla: "2-3 días", gen_asks: "Validación de tono de voz, revisión de tecnicismos del producto.", gen_delivers: "Parrilla de textos (Grid), guiones de video, textos para web." },
+            { id: 6, name: "Diseño", x: 0.85, y: 0.3, time: 3000, desc: "Creación de la identidad visual, interfaces, videos y gráficos.", sla: "3-5 días", gen_asks: "Imágenes crudas del producto, logos en vectores (.AI, .EPS).", gen_delivers: "Piezas gráficas finales, UI/UX mockups en Figma, videos editados." },
+            { id: 7, name: "Desarrollo Web", x: 0.85, y: 0.7, time: 4000, desc: "Programación y maquetación de Landing Page, sitios web o aplicaciones.", sla: "7-15 días", gen_asks: "Accesos a servidor, credenciales de pasarelas de pago y CRM.", gen_delivers: "Servidor en fase Staging, código fuente, implementación HTML/React." },
+            { id: 8, name: "Pauta Digital", x: 0.55, y: 0.7, time: 2500, desc: "Configuración y optimización de campañas publicitarias pagadas.", sla: "2-3 días", gen_asks: "Tarjetas de crédito configuradas en el Business Manager.", gen_delivers: "Campañas activas de Remarketing, píxeles de rastreo instalados." },
+            { id: 9, name: "QA / Entrega", x: 0.25, y: 0.7, time: 2000, desc: "Pruebas de calidad final, revisión de funcionamiento y entrega al cliente.", sla: "1-2 días", gen_asks: "Disponibilidad para revisión final y firma de conformidad.", gen_delivers: "Proyecto en vivo tras Pruebas A/B, reporte de entrega final." }
+        ];
+
+        // Casos de estudio ultra detallados (Inputs y Outputs reales)
+        const caseStudies = {
+            landing: {
+                title: "Lanzamiento de Producto SaaS B2B",
+                tasks: {
+                    1: { desc: "Briefing con el CEO del SaaS para entender su software financiero B2B.", asks: "El cliente provee el Brandbook corporativo, perfil del Buyer Persona ideal y su objetivo mensual de leads.", delivers: "Entregamos un Scope of Work firmado y el cronograma del proyecto." },
+                    2: { desc: "Benchmarking de otras plataformas financieras SaaS y definición del CPL.", asks: "Acceso al histórico de campañas anteriores y el valor del LTV de su cliente promedio.", delivers: "Documento estableciendo que buscaremos un CPL de máximo $15 USD y un CPA de $50 USD." },
+                    3: { desc: "Estructuración del embudo de conversión enfocado a recolección de leads usando un lead magnet.", asks: "Aprobación del índice de contenidos del Ebook financiero (lead magnet).", delivers: "Entregamos un Wireframe estructural en blanco y negro de la web." },
+                    4: { desc: "Definición de segmentación de tráfico mediante anuncios en LinkedIn Ads hacia la web.", asks: "Aprobación del presupuesto de $2,000 USD mensuales para pauta.", delivers: "Entregamos el Media Plan en Excel detallando el gasto diario." },
+                    5: { desc: "Redacción de textos atacando los dolores del Buyer Persona con fuertes CTAs.", asks: "Revisión técnica de los textos por parte de sus especialistas financieros.", delivers: "Documento con títulos y botones listos (CTAs)." },
+                    6: { desc: "Diseño moderno UI/UX de la Landing Page en Figma.", asks: "Capturas de pantalla en alta resolución del interior de su plataforma SaaS.", delivers: "Link interactivo en Figma con el diseño final listo para revisión." },
+                    7: { desc: "Maquetación Frontend en HTML/React e integración con su base de datos CRM vía API.", asks: "Claves de la API de su CRM (HubSpot/Salesforce) y accesos DNS.", delivers: "Enviamos el link de Staging para probar la web antes de hacerla pública." },
+                    9: { desc: "Realizamos Pruebas A/B de los formularios antes de lanzar la versión oficial en vivo.", asks: "Confirmación del cliente al hacer una prueba de envío de formulario real.", delivers: "Sitio web transferido al Backend del cliente y código entregado." }
+                }
+            },
+            social: {
+                title: "Campaña de Verano - Marca de Ropa",
+                tasks: {
+                    1: { desc: "Reunión Kick-off por la nueva colección de verano.", asks: "Catálogo de prendas, listado de precios y objetivos comerciales por colección.", delivers: "Minuta del Kick-off y establecimiento de KPIs de venta online." },
+                    2: { desc: "Análisis de tendencias de moda visual para las plataformas y auditoría del Target.", asks: "Conocer cuáles son los Best Sellers del año pasado para destacarlos.", delivers: "Moodboard estético definiendo colores y vibras fotográficas de la temporada." },
+                    3: { desc: "Concepto creativo 'Verano Infinito' para el lanzamiento en Instagram.", asks: "Aprobación del concepto y casting de modelos enviadas.", delivers: "Presentación PDF con 3 ideas creativas para Reels y posteos." },
+                    4: { desc: "Planificación del contenido a publicar en el Grid y distribución del Ad Spend.", asks: "Aprobación de la política de devoluciones y ofertas flash aplicables.", delivers: "Calendario en Asana con fechas de grabación y publicación." },
+                    5: { desc: "Creación de guiones ágiles y con ganchos virales para los Reels de moda.", asks: "Revisión rápida de que el Copywriting describe correctamente la tela de cada prenda.", delivers: "Parrilla de textos completa lista para la aprobación del equipo de marca." },
+                    6: { desc: "Sesión de fotos en estudio, edición audiovisual y diagramación para redes.", asks: "Envío físico y urgente de la ropa de muestra a nuestro estudio fotográfico.", delivers: "Carpeta de Drive con 15 Reels y 20 fotos retocadas listas para salir." },
+                    8: { desc: "Configuración de Meta Ads, activando Remarketing para carritos abandonados.", asks: "Permisos nivel administrador en el Business Manager de su marca.", delivers: "Píxeles correctamente instalados y campañas corriendo fase de aprendizaje." },
+                    9: { desc: "Carga final del contenido y reporte analítico de la campaña de verano.", asks: "Ninguno, solo seguimiento a los Leads que pregunten por precios en la bandeja de entrada.", delivers: "Contenido programado y reporte de ROI final a los 30 días." }
+                }
+            },
+            app: {
+                title: "App de Delivery Local",
+                tasks: {
+                    1: { desc: "Definición del Scope of Work para la creación de una aplicación de entregas nativa.", asks: "Lista definitiva de zonas de cobertura y comisiones para los restaurantes afiliados.", delivers: "Documento de alcance del proyecto evitando modificaciones de último minuto." },
+                    2: { desc: "Benchmarking de plataformas internacionales para entender mejores prácticas.", asks: "Feedback sobre qué elementos de aplicaciones existentes no quieren copiar.", delivers: "Reporte de usabilidad y comparativa funcional." },
+                    3: { desc: "Estructuración del User Journey completo y creación del User Flow Diagram.", asks: "Aprobación de la ruta crítica: Registro -> Elección -> Carrito -> Pasarela de Pago.", delivers: "Diagrama estructural de la conexión entre repartidor, restaurante y cliente." },
+                    4: { desc: "Arquitectura de la información técnica y selección del stack tecnológico.", asks: "Aprobación de los costos mensuales de servidores en la nube.", delivers: "Ficha técnica indicando que usaremos React Native y Firebase." },
+                    6: { desc: "Diseño completo de la interfaz de la aplicación UI/UX con modo oscuro.", asks: "Manual de colores o Brandbook del emprendimiento base.", delivers: "Prototipo 100% navegable exportado en Figma para simulación visual." },
+                    7: { desc: "Programación combinada de Frontend para pantallas y Backend de gestión con Node.js.", asks: "Inscripción en plataformas de cobro internacionales mediante APIs.", delivers: "Envío del archivo APK instalable para Android y acceso a TestFlight para iPhone." },
+                    9: { desc: "Pruebas de estrés de servidores y subida oficial a las tiendas de aplicaciones.", asks: "Testeo final creando pedidos de prueba con tarjetas de crédito reales.", delivers: "Entrega de la App activa, código del Backend y manuales de soporte técnico." }
+                }
+            },
+            local: {
+                title: "Apertura de Cafetería (Campaña Local)",
+                tasks: {
+                    1: { desc: "Definición de la fecha de inauguración para preparar la campaña.", asks: "Fecha exacta de apertura, menú definitivo y capacidad aforo del local.", delivers: "Cronograma de la fase Teaser (intriga) y el lanzamiento oficial." },
+                    2: { desc: "Estudio hiper-localizado de tránsito peatonal para definir el Target barrial.", asks: "Definición del perfil de cliente que vive cerca (estudiantes, oficinistas, corporativos).", delivers: "Segmentación publicitaria establecida a un radio de 2 kilómetros a la redonda." },
+                    3: { desc: "Ideación de promoción 'Café de bienvenida gratis' mediante una campaña de Guerrilla.", asks: "Aprobación del coste máximo: ¿Cuántos cafés gratis pueden regalar económicamente?", delivers: "Concepto visual y propuesta de activación callejera para hacer ruido." },
+                    4: { desc: "Cronograma y logística para el día de apertura.", asks: "Aprobación de impresiones de afiches en vía pública.", delivers: "Plan integral mezclando medios offline y distribución del presupuesto en redes." },
+                    6: { desc: "Diseño del menú interactivo por código QR y banners impresos.", asks: "Fotos crudas y reales del menú principal hechas por el cliente.", delivers: "Flyers para imprenta, diseño del QR de las mesas y visuales para publicidad." },
+                    8: { desc: "Activación publicitaria mediante Meta Ads con segmentación estricta de código postal.", asks: "Presupuesto final cargado a la tarjeta en su cuenta publicitaria.", delivers: "Anuncios rotativos generando tráfico peatonal al link de su ubicación." },
+                    9: { desc: "Optimización de posicionamiento geolocalizado local y cierre.", asks: "Recepción de código de verificación físico enviado por correo tradicional al local.", delivers: "Alta verificada e implementada correctamente en Google My Business." }
+                }
+            }
+        };
+
+        const routes = {
+            landing: [1, 2, 3, 4, 5, 6, 7, 9],
+            social: [1, 2, 3, 4, 5, 6, 8, 9],
+            app: [1, 2, 3, 4, 6, 7, 9], 
+            local: [1, 2, 3, 4, 6, 8, 9] 
+        };
+
+        let animState = {
+            active: false,
+            route: [],
+            step: 0,
+            progress: 0, 
+            phase: 'idle', 
+            currentProject: null 
+        };
+
+        let builderMode = false;
+        let customRoute = [];
+        
+        // Objeto para guardar la configuración del estudiante
+        let customProjectData = {
+            projectName: "",
+            studentName: "",
+            nodesData: {}
+        };
+        
+        const MOVE_TIME = 1000; 
+        let lastTime = 0;
+
+        window.startSim = function(type) {
+            if(builderMode) toggleBuilder(); 
+            animState.route = routes[type];
+            animState.currentProject = type;
+            animState.step = 0;
+            animState.progress = 0;
+            animState.phase = 'processing';
+            animState.active = true;
+            document.getElementById('modal').classList.add('hidden');
+            document.getElementById('end-modal').classList.add('hidden');
+            document.getElementById('config-modal').classList.add('hidden');
+        };
+
+        window.toggleBuilder = function() {
+            builderMode = !builderMode;
+            animState.active = false;
+            animState.currentProject = null;
+            animState.phase = 'idle';
+            
+            const btn = document.getElementById('btn-builder');
+            const panel = document.getElementById('builder-panel');
+            
+            if (builderMode) {
+                btn.classList.replace('bg-slate-600', 'bg-green-600');
+                btn.innerText = "✅ Constructor Activo";
+                panel.classList.remove('hidden');
+                clearBuilder();
+            } else {
+                btn.classList.replace('bg-green-600', 'bg-slate-600');
+                btn.innerText = "🛠️ Modo Constructor";
+                panel.classList.add('hidden');
+                customRoute = [];
+                document.getElementById('modal').classList.add('hidden');
+                document.getElementById('end-modal').classList.add('hidden');
+                document.getElementById('config-modal').classList.add('hidden');
+            }
+        };
+
+        window.clearBuilder = function() {
+            customRoute = [];
+            updateBuilderUI();
+        };
+
+        window.undoBuilder = function() {
+            if (customRoute.length > 0) {
+                customRoute.pop();
+                updateBuilderUI();
+            }
+        };
+
+        function updateBuilderUI() {
+            const routeContainer = document.getElementById('builder-route');
+            if (customRoute.length === 0) {
+                routeContainer.innerHTML = "Haz clic en los nodos en orden";
+                return;
+            }
+            routeContainer.innerHTML = customRoute.map((id, index) => {
+                let n = nodes.find(node => node.id === id);
+                return `<span class="bg-slate-700 px-2 py-1 rounded border border-slate-500">${index+1}. ${n.name}</span>`;
+            }).join(' ➔ ');
+        }
+
+        window.playCustomRoute = function() {
+            if (customRoute.length < 2) {
+                alert("Selecciona al menos 2 áreas para simular.");
+                return;
+            }
+            
+            // Llenar el modal de configuración dinámicamente según la ruta armada
+            const container = document.getElementById('cfg-nodes-container');
+            container.innerHTML = '';
+            
+            customRoute.forEach((id, index) => {
+                let n = nodes.find(node => node.id === id);
+                container.innerHTML += `
+                    <div class="bg-slate-800/50 p-4 rounded-lg border border-slate-600">
+                        <h3 class="text-cyan-400 font-bold text-lg mb-3 flex items-center gap-2">
+                            <span class="bg-cyan-900 text-cyan-300 w-6 h-6 rounded-full flex items-center justify-center text-sm">${index + 1}</span>
+                            Área: ${n.name}
+                        </h3>
+                        <div class="grid grid-cols-1 gap-3">
+                            <div>
+                                <label class="block text-slate-400 text-xs font-bold mb-1">Descripción de la tarea en esta área:</label>
+                                <textarea id="cfg-desc-${id}" rows="2" placeholder="Ej: Revisión de métricas del mes pasado..." class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white text-sm focus:border-cyan-500 focus:outline-none custom-scrollbar"></textarea>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-orange-400 text-xs font-bold mb-1">Lo que pedimos al cliente (Inputs):</label>
+                                    <textarea id="cfg-asks-${id}" rows="2" placeholder="Ej: Accesos a redes sociales..." class="w-full bg-slate-900 border border-orange-700/50 rounded p-2 text-white text-sm focus:border-orange-500 focus:outline-none custom-scrollbar"></textarea>
+                                </div>
+                                <div>
+                                    <label class="block text-green-400 text-xs font-bold mb-1">Lo que entregamos (Outputs):</label>
+                                    <textarea id="cfg-delivers-${id}" rows="2" placeholder="Ej: Reporte PDF con estrategia..." class="w-full bg-slate-900 border border-green-700/50 rounded p-2 text-white text-sm focus:border-green-500 focus:outline-none custom-scrollbar"></textarea>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            document.getElementById('config-modal').classList.remove('hidden');
+        };
+
+        window.startCustomSim = function() {
+            // Guardar los datos ingresados por el estudiante
+            customProjectData.projectName = document.getElementById('cfg-proj-name').value;
+            customProjectData.studentName = document.getElementById('cfg-student-name').value;
+            customProjectData.nodesData = {};
+            
+            customRoute.forEach(id => {
+                customProjectData.nodesData[id] = {
+                    desc: document.getElementById(`cfg-desc-${id}`).value,
+                    asks: document.getElementById(`cfg-asks-${id}`).value,
+                    delivers: document.getElementById(`cfg-delivers-${id}`).value
+                };
+            });
+            
+            document.getElementById('config-modal').classList.add('hidden');
+            document.getElementById('modal').classList.add('hidden');
+            document.getElementById('end-modal').classList.add('hidden');
+
+            // Iniciar simulación
+            animState.route = [...customRoute];
+            animState.currentProject = 'custom'; // Etiqueta especial
+            animState.step = 0;
+            animState.progress = 0;
+            animState.phase = 'processing';
+            animState.active = true;
+        };
+
+        window.downloadReport = function() {
+            let content = `=================================================\n`;
+            content += `        REPORTE DE SIMULACIÓN DE AGENCIA         \n`;
+            content += `=================================================\n\n`;
+            
+            let pName = customProjectData.projectName || 'Sin Nombre';
+            let sName = customProjectData.studentName || 'Anónimo';
+            let date = new Date().toLocaleDateString();
+            
+            content += `📌 DATOS GENERALES\n`;
+            content += `-------------------------------------------------\n`;
+            content += `Proyecto:   ${pName}\n`;
+            content += `Estudiante: ${sName}\n`;
+            content += `Fecha:      ${date}\n\n`;
+            
+            content += `📌 FLUJO DE TRABAJO SELECCIONADO\n`;
+            content += `-------------------------------------------------\n`;
+            let routeNames = customRoute.map((id, index) => `${index + 1}. ${nodes.find(n => n.id === id).name}`).join(' -> ');
+            content += `${routeNames}\n\n`;
+            
+            content += `📌 ANÁLISIS POR DEPARTAMENTO\n`;
+            content += `-------------------------------------------------\n`;
+            
+            let missingFieldsCount = 0;
+
+            customRoute.forEach((id, index) => {
+                let n = nodes.find(x => x.id === id);
+                let data = customProjectData.nodesData[id];
+                
+                let desc = data.desc.trim() !== "" ? data.desc : "[⚠️ FALTA RELLENAR]";
+                let asks = data.asks.trim() !== "" ? data.asks : "[⚠️ FALTA RELLENAR]";
+                let delivers = data.delivers.trim() !== "" ? data.delivers : "[⚠️ FALTA RELLENAR]";
+                
+                if (desc === "[⚠️ FALTA RELLENAR]") missingFieldsCount++;
+                if (asks === "[⚠️ FALTA RELLENAR]") missingFieldsCount++;
+                if (delivers === "[⚠️ FALTA RELLENAR]") missingFieldsCount++;
+
+                content += `\n[PASO ${index + 1}] ÁREA: ${n.name.toUpperCase()}\n`;
+                content += `   Descripción de la Tarea:\n   > ${desc}\n\n`;
+                content += `   Lo que pedimos al cliente (Inputs):\n   > ${asks}\n\n`;
+                content += `   Lo que entregamos (Outputs):\n   > ${delivers}\n`;
+                content += `   ..............................................\n`;
+            });
+            
+            content += `\n📌 RESUMEN DE EVALUACIÓN\n`;
+            content += `-------------------------------------------------\n`;
+            if (missingFieldsCount > 0) {
+                content += `ESTADO: Incompleto.\n`;
+                content += `Observación: Te faltaron rellenar ${missingFieldsCount} campos durante la planeación de tu flujo.\n`;
+                content += `Un flujo de trabajo sin inputs o entregables claros genera cuellos de botella en la agencia real.\n`;
+            } else {
+                content += `ESTADO: ¡Excelente!\n`;
+                content += `Observación: Has definido correctamente todos los pasos, requisitos y entregables de tu flujo.\n`;
+                content += `¡Estás listo para ejecutar el proyecto en la vida real!\n`;
+            }
+            
+            // Lógica para forzar la descarga en el navegador
+            const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Reporte_${pName.replace(/\s+/g, '_')}.txt`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        };
+
+        function getPos(n1, n2, t) {
+            let p0x = n1.x * cw, p0y = n1.y * ch;
+            let p2x = n2.x * cw, p2y = n2.y * ch;
+            
+            if (animState.currentProject === null && animState.active) {
+                return { x: p0x + (p2x - p0x) * t, y: p0y + (p2y - p0y) * t };
+            }
+
+            if ((n1.id === 4 && n2.id === 6) || (n1.id === 6 && n2.id === 4)) {
+                let p1x = 0.7 * cw, p1y = 0.3 * ch - (ch * 0.2); 
+                let x = Math.pow(1-t, 2)*p0x + 2*(1-t)*t*p1x + Math.pow(t, 2)*p2x;
+                let y = Math.pow(1-t, 2)*p0y + 2*(1-t)*t*p1y + Math.pow(t, 2)*p2y;
+                return {x, y};
+            }
+            if ((n1.id === 7 && n2.id === 9) || (n1.id === 9 && n2.id === 7)) {
+                let p1x = 0.55 * cw, p1y = 0.7 * ch + (ch * 0.2); 
+                let x = Math.pow(1-t, 2)*p0x + 2*(1-t)*t*p1x + Math.pow(t, 2)*p2x;
+                let y = Math.pow(1-t, 2)*p0y + 2*(1-t)*t*p1y + Math.pow(t, 2)*p2y;
+                return {x, y};
+            }
+            
+            return { x: p0x + (p2x - p0x) * t, y: p0y + (p2y - p0y) * t };
+        }
+
+        function update(dt) {
+            if (!animState.active || animState.phase === 'paused') return;
+            
+            let effDt = dt * simSpeed; // Aplicar multiplicador de velocidad
+
+            if (animState.phase === 'processing') {
+                let currentNode = nodes.find(n => n.id === animState.route[animState.step]);
+                animState.progress += effDt / currentNode.time;
+                
+                if (animState.progress >= 1) { 
+                    animState.progress = 1; 
+                    animState.phase = 'paused';
+                    showModal(currentNode, true); 
+                }
+            } else if (animState.phase === 'moving') {
+                animState.progress += effDt / MOVE_TIME;
+                
+                if (animState.progress >= 1) { 
+                    animState.progress = 0;
+                    animState.step++;
+                    animState.phase = 'processing';
+                }
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, cw, ch);
+
+            const allConnections = new Set();
+            Object.values(routes).forEach(route => {
+                for(let i = 0; i < route.length - 1; i++) {
+                    allConnections.add(`${route[i]}-${route[i+1]}`);
+                }
+            });
+
+            allConnections.forEach(conn => {
+                let [id1, id2] = conn.split('-');
+                let n1 = nodes.find(n => n.id == id1);
+                let n2 = nodes.find(n => n.id == id2);
+
+                ctx.beginPath();
+                ctx.moveTo(n1.x * cw, n1.y * ch);
+                
+                if ((n1.id == 4 && n2.id == 6) || (n1.id == 6 && n2.id == 4)) {
+                    ctx.quadraticCurveTo(0.7 * cw, 0.3 * ch - (ch*0.2), n2.x * cw, n2.y * ch);
+                } else if ((n1.id == 7 && n2.id == 9) || (n1.id == 9 && n2.id == 7)) {
+                    ctx.quadraticCurveTo(0.55 * cw, 0.7 * ch + (ch*0.2), n2.x * cw, n2.y * ch);
+                } else {
+                    ctx.lineTo(n2.x * cw, n2.y * ch);
+                }
+
+                ctx.strokeStyle = '#334155';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            });
+
+            let activeRoute = animState.active ? animState.route : (builderMode ? customRoute : []);
+            
+            if (activeRoute.length > 0) {
+                ctx.beginPath();
+                for (let i = 0; i < activeRoute.length; i++) {
+                    let node = nodes.find(n => n.id === activeRoute[i]);
+                    if (i === 0) ctx.moveTo(node.x * cw, node.y * ch);
+                    else {
+                        let prevNode = nodes.find(n => n.id === activeRoute[i-1]);
+                        if(builderMode || animState.currentProject === null) {
+                            ctx.lineTo(node.x * cw, node.y * ch);
+                        } else {
+                            if ((prevNode.id == 4 && node.id == 6) || (prevNode.id == 6 && node.id == 4)) {
+                                ctx.quadraticCurveTo(0.7 * cw, 0.3 * ch - (ch*0.2), node.x * cw, node.y * ch);
+                            } else if ((prevNode.id == 7 && node.id == 9) || (prevNode.id == 9 && node.id == 7)) {
+                                ctx.quadraticCurveTo(0.55 * cw, 0.7 * ch + (ch*0.2), node.x * cw, node.y * ch);
+                            } else {
+                                ctx.lineTo(node.x * cw, node.y * ch);
+                            }
+                        }
+                    }
+                }
+                ctx.strokeStyle = '#06b6d4';
+                ctx.lineWidth = 4;
+                ctx.lineCap = 'round';
+                ctx.lineJoin = 'round';
+                ctx.stroke();
+            }
+
+            if (animState.active) {
+                let n1 = nodes.find(n => n.id === animState.route[animState.step]);
+                let px, py;
+                
+                let progressRadius = isMobile ? 30 : 45;
+                let particleRadius = isMobile ? 8 : 12;
+
+                if (animState.phase === 'moving') {
+                    let n2 = nodes.find(n => n.id === animState.route[animState.step + 1]);
+                    let pos = getPos(n1, n2, animState.progress);
+                    px = pos.x; py = pos.y;
+                } else if (animState.phase === 'processing' || animState.phase === 'paused') {
+                    px = n1.x * cw; py = n1.y * ch;
+                    
+                    ctx.beginPath();
+                    ctx.arc(px, py, progressRadius, -Math.PI/2, (-Math.PI/2) + (Math.PI * 2 * animState.progress));
+                    ctx.strokeStyle = animState.phase === 'paused' ? '#34d399' : '#10b981'; 
+                    ctx.lineWidth = isMobile ? 4 : 6;
+                    ctx.stroke();
+                }
+
+                ctx.beginPath();
+                ctx.arc(px, py, particleRadius, 0, Math.PI * 2);
+                ctx.fillStyle = '#3b82f6';
+                ctx.shadowColor = '#60a5fa';
+                ctx.shadowBlur = 20;
+                ctx.fill();
+                ctx.shadowBlur = 0; 
+            }
+
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            let nodeRadius = isMobile ? 22 : 35;
+            let fontSize = isMobile ? 'bold 10px sans-serif' : 'bold 12px sans-serif';
+            let badgeOffset = isMobile ? 18 : 25;
+            
+            nodes.forEach(n => {
+                let nx = n.x * cw;
+                let ny = n.y * ch;
+                
+                ctx.beginPath();
+                ctx.arc(nx, ny, nodeRadius, 0, Math.PI * 2);
+                ctx.fillStyle = '#1e293b';
+                ctx.fill();
+                
+                if (animState.active && animState.route[animState.step] === n.id && (animState.phase === 'processing' || animState.phase === 'paused')) {
+                    ctx.strokeStyle = animState.phase === 'paused' ? '#eab308' : '#10b981';
+                    ctx.lineWidth = isMobile ? 3 : 4;
+                } else if (builderMode && customRoute.includes(n.id)) {
+                    ctx.strokeStyle = '#eab308';
+                    ctx.lineWidth = isMobile ? 3 : 4;
+                } else {
+                    ctx.strokeStyle = '#475569';
+                    ctx.lineWidth = 2;
+                }
+                ctx.stroke();
+                
+                ctx.fillStyle = '#f8fafc';
+                ctx.font = fontSize;
+                ctx.fillText(n.name, nx, ny);
+
+                if (builderMode && customRoute.includes(n.id)) {
+                    let idx = customRoute.indexOf(n.id) + 1;
+                    ctx.beginPath();
+                    ctx.arc(nx + badgeOffset, ny - badgeOffset, isMobile ? 10 : 12, 0, Math.PI * 2);
+                    ctx.fillStyle = '#eab308';
+                    ctx.fill();
+                    ctx.fillStyle = '#000';
+                    ctx.font = 'bold 10px sans-serif';
+                    ctx.fillText(idx, nx + badgeOffset, ny - badgeOffset);
+                }
+            });
+        }
+
+        function loop(timestamp) {
+            let dt = timestamp - lastTime;
+            lastTime = timestamp;
+            if(dt > 100) dt = 16; 
+            update(dt);
+            draw();
+            requestAnimationFrame(loop);
+        }
+        requestAnimationFrame(loop);
+
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const mx = e.clientX - rect.left;
+            const my = e.clientY - rect.top;
+            
+            let clickRadius = isMobile ? 25 : 40;
+
+            nodes.forEach(n => {
+                const nx = n.x * cw;
+                const ny = n.y * ch;
+                const dist = Math.hypot(nx - mx, ny - my);
+                
+                if (dist < clickRadius) { 
+                    if (builderMode) {
+                        customRoute.push(n.id);
+                        updateBuilderUI();
+                    } else {
+                        showModal(n, false);
+                    }
+                }
+            });
+        });
+
+        function showModal(node, isAutoPause) {
+            document.getElementById('m-title').innerText = node.name;
+            // Se inyecta el glosario en la descripción general
+            document.getElementById('m-desc').innerHTML = applyGlossary(node.desc);
+            document.getElementById('m-sla').innerText = node.sla;
+            
+            const caseContainer = document.getElementById('m-case-container');
+            const caseTitle = document.getElementById('m-case-title');
+            const caseDesc = document.getElementById('m-case-desc');
+            const caseAsks = document.getElementById('m-case-asks');
+            const caseDelivers = document.getElementById('m-case-delivers');
+            const btnAction = document.getElementById('btn-modal-action');
+
+            if (animState.currentProject && caseStudies[animState.currentProject] && caseStudies[animState.currentProject].tasks[node.id]) {
+                const taskInfo = caseStudies[animState.currentProject].tasks[node.id];
+                caseTitle.innerText = "Detalle del Caso: " + caseStudies[animState.currentProject].title;
+                // Aplicamos el motor de glosario a cada bloque de texto dinámico
+                caseDesc.innerHTML = applyGlossary(taskInfo.desc);
+                caseAsks.innerHTML = applyGlossary(taskInfo.asks);
+                caseDelivers.innerHTML = applyGlossary(taskInfo.delivers);
+                caseContainer.classList.remove('hidden');
+            } 
+            else if (animState.currentProject === 'custom') {
+                const taskInfo = customProjectData.nodesData[node.id];
+                caseTitle.innerText = "Tu Proyecto: " + (customProjectData.projectName || "Sin Nombre");
+                
+                let defaultEmpty = "<span class='text-red-400 font-bold'>[⚠️ Falta rellenar por el estudiante]</span>";
+                
+                caseDesc.innerHTML = applyGlossary(taskInfo.desc || defaultEmpty);
+                caseAsks.innerHTML = applyGlossary(taskInfo.asks || defaultEmpty);
+                caseDelivers.innerHTML = applyGlossary(taskInfo.delivers || defaultEmpty);
+                caseContainer.classList.remove('hidden');
+            }
+            else if (animState.active && !animState.currentProject) {
+                caseTitle.innerText = "Detalle de Área (Ruta Personalizada)";
+                caseDesc.innerHTML = applyGlossary("Ejecución estándar del departamento.");
+                caseAsks.innerHTML = applyGlossary(node.gen_asks);
+                caseDelivers.innerHTML = applyGlossary(node.gen_delivers);
+                caseContainer.classList.remove('hidden');
+            }
+            else {
+                caseContainer.classList.add('hidden');
+            }
+
+            if (isAutoPause) {
+                btnAction.innerHTML = "Aprobar y Continuar al siguiente paso <span class='text-2xl'>▶</span>";
+                btnAction.className = "mt-4 w-full bg-green-600 hover:bg-green-500 text-white font-bold py-4 px-4 rounded-lg transition text-xl shadow-lg flex justify-center items-center gap-2 animate-pulse";
+            } else {
+                btnAction.innerHTML = "Cerrar Panel";
+                btnAction.className = "mt-4 w-full bg-slate-600 hover:bg-slate-500 text-white font-bold py-3 px-4 rounded-lg transition text-lg shadow border border-slate-500";
+            }
+
+            document.getElementById('modal').classList.remove('hidden');
+        }
+
+        window.handleModalAction = function() {
+            document.getElementById('modal').classList.add('hidden');
+            
+            if (animState.phase === 'paused') {
+                animState.progress = 0; 
+                if (animState.step >= animState.route.length - 1) {
+                    animState.active = false;
+                    animState.phase = 'idle';
+                    
+                    // Si es el proyecto personalizado del estudiante, mostrar el modal final con scoreboard
+                    if (animState.currentProject === 'custom') {
+                        showEndModal();
+                    }
+                } else {
+                    animState.phase = 'moving';
+                }
+            }
+        }
+
+        window.showEndModal = function() {
+            let missingFieldsCount = 0;
+            let totalFields = customRoute.length * 3; 
+
+            customRoute.forEach((id) => {
+                let data = customProjectData.nodesData[id];
+                if (!data.desc || data.desc.trim() === "") missingFieldsCount++;
+                if (!data.asks || data.asks.trim() === "") missingFieldsCount++;
+                if (!data.delivers || data.delivers.trim() === "") missingFieldsCount++;
+            });
+
+            const scoreContainer = document.getElementById('end-modal-score');
+            if (missingFieldsCount > 0) {
+                scoreContainer.innerHTML = `
+                    <h3 class="text-red-400 font-bold mb-2 flex items-center gap-2"><span class="text-xl">⚠️</span> Evaluación: Incompleto</h3>
+                    <p class="text-sm text-slate-300">Dejaste <strong>${missingFieldsCount}</strong> campos en blanco de un total de ${totalFields}.<br>Un flujo de trabajo sin inputs o entregables claros genera cuellos de botella reales.</p>
+                `;
+            } else {
+                scoreContainer.innerHTML = `
+                    <h3 class="text-green-400 font-bold mb-2 flex items-center gap-2"><span class="text-xl">✅</span> Evaluación: ¡Excelente!</h3>
+                    <p class="text-sm text-slate-300">Has definido el 100% de las tareas, requerimientos y entregables. ¡Tu flujo está listo para ejecutarse en la agencia!</p>
+                `;
+            }
+
+            document.getElementById('end-modal').classList.remove('hidden');
+        };
+    </script>
+</body>
+</html>
